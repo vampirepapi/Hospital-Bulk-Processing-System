@@ -18,7 +18,7 @@ The upstream API is slow: each `POST /hospitals/` takes **~5–6 seconds** on it
 free tier. Creating 20 hospitals sequentially would take ~2 minutes. The core
 idea of this service is to **fan those creates out across a bounded thread
 pool**, collapsing the wall-clock time to roughly the latency of a *single*
-request. A measured live run created 3 hospitals in **6.0s** instead of ~18s.
+request. A measured live run created 3 hospitals in **~6s** instead of ~18s.
 
 Everything else — retries, a single-worker job store, the input-vs-processing
 error split — exists to make that fan-out correct and resilient against a flaky
@@ -267,11 +267,12 @@ The suite (`tests/`) covers:
 - **Job store** — eviction, snapshots, status transitions.
 - **HTTP API** — exact response contract, every endpoint, error scenarios, async lifecycle, and resume recovery (using a fake upstream injected into the app, so no network and no thread/mocking flakiness).
 
-A live integration smoke test against the **real** upstream (creates + activates +
-cleans up a tiny batch):
+Two scripts exercise the **real** upstream (each creates + activates + cleans up):
 
 ```bash
-python scripts/live_smoke.py
+python scripts/live_smoke.py        # minimal smoke test (one tiny batch)
+python scripts/acceptance_check.py  # full acceptance: every endpoint + exact
+                                    # response contract, 28 assertions, 0 = pass
 ```
 
 ---
@@ -308,7 +309,7 @@ app/
     jobs.py          thread-safe job store
   static/            openapi.json + Swagger UI page
 tests/               61 tests (pytest)
-scripts/live_smoke.py
+scripts/             live_smoke.py + acceptance_check.py (real-upstream checks)
 wsgi.py  run.py      prod / dev entrypoints
 Dockerfile  docker-compose.yml  render.yaml  Procfile
 ```
