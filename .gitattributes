@@ -1,0 +1,5 @@
+# Normalize line endings to LF on checkin; required so Dockerfile/Procfile/
+# shell entrypoints stay LF when the repo is built on Linux (Render/Docker).
+* text=auto eol=lf
+*.png binary
+*.pdf binary

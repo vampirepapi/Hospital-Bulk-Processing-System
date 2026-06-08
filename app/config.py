@@ -55,14 +55,16 @@ class Config:
         self.upstream_base_url = upstream_base_url.rstrip("/")
         self.max_hospitals = max_hospitals
         self.concurrency = max(1, concurrency)
+        self.job_workers = max(1, job_workers)
         self.connect_timeout = connect_timeout
         self.read_timeout = read_timeout
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
-        # Pool generously enough to cover the per-request fan-out.
-        self.pool_size = max(self.concurrency, 10)
+        # Size the shared connection pool for the worst-case concurrent fan-out
+        # across all in-flight async jobs (job_workers x concurrency), not just a
+        # single request, so we don't churn keep-alive connections under load.
+        self.pool_size = max(self.concurrency * self.job_workers, 10)
         self.activate_on_partial = activate_on_partial
-        self.job_workers = max(1, job_workers)
         self.max_jobs = max_jobs
         self.max_content_length = max_content_length
         self.log_level = log_level

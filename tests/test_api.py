@@ -115,6 +115,21 @@ def test_bulk_rejects_too_many_rows(client):
     assert "maximum" in resp.get_json()["message"].lower()
 
 
+def test_bulk_rejects_malformed_csv_with_400(client):
+    # Unterminated quoted field -> csv.Error -> must be a clean 400, not 500.
+    csv = "name,address,phone\n" + '"' + ("a" * 200000) + ",1 St,555\n"
+    resp = _upload(client, csv)
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "invalid_csv"
+
+
+def test_validate_malformed_csv_returns_200_invalid(client):
+    csv = "name,address,phone\n" + '"' + ("a" * 200000) + ",1 St,555\n"
+    resp = _upload(client, csv, path="/hospitals/bulk/validate")
+    assert resp.status_code == 200
+    assert resp.get_json()["valid"] is False
+
+
 # -- validate ----------------------------------------------------------------
 
 
@@ -173,7 +188,9 @@ def test_resume_recovers_failed_rows(make_app):
     csv = "name,address,phone\nStable,1 St,555\nFlaky,2 St,556\n"
 
     start = _upload(client, csv, mode="async")
-    job_id = start.get_json()["job_id"]
+    start_body = start.get_json()
+    job_id = start_body["job_id"]
+    batch_id = start_body["batch_id"]
     first = wait_for_job(client, job_id)
     assert first["status"] == "partial"
     assert first["failed"] == 1
@@ -183,7 +200,23 @@ def test_resume_recovers_failed_rows(make_app):
     body = resumed.get_json()
     assert body["status"] == "completed"
     assert body["failed"] == 0
-    assert body["result"]["processed_hospitals"] == 2
+    result = body["result"]
+    assert result["processed_hospitals"] == 2
+    # Resume must also activate: the recovered batch is fully created_and_activated.
+    assert result["batch_activated"] is True
+    assert all(h["status"] == "created_and_activated" for h in result["hospitals"])
+    assert batch_id in app._fake_client.activated_batches
+
+
+def test_resume_conflict_while_in_flight(make_app):
+    # A resume issued while the job is still running must 409, not double-process.
+    app = make_app(FakeClient(latency=0.3))
+    client = app.test_client()
+    start = _upload(client, GOOD_CSV, mode="async")
+    job_id = start.get_json()["job_id"]
+    resp = client.post("/hospitals/bulk/{}/resume".format(job_id))
+    assert resp.status_code == 409
+    wait_for_job(client, job_id)  # drain the original run so no thread leaks
 
 
 def test_resume_404_for_unknown(client):

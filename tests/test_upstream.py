@@ -97,3 +97,24 @@ def test_health_false_on_error():
 def test_health_true_on_200():
     responses.add(responses.GET, BASE + "/", json={"status": "ok"}, status=200)
     assert _client().health() is True
+
+
+def test_retry_policy_covers_post_and_transient_statuses():
+    # The documented resilience mechanism: retries apply to POST (creates) and
+    # to transient gateway/throttle statuses, but NOT to 4xx validation errors.
+    client = HospitalDirectoryClient(BASE, max_retries=3, backoff_factor=0.5)
+    retry = client.session.get_adapter(BASE + "/").max_retries
+    assert retry.total == 3
+    assert retry.backoff_factor == 0.5
+    assert "POST" in retry.allowed_methods
+    assert "PATCH" in retry.allowed_methods
+    for status in (429, 502, 503, 504):
+        assert status in retry.status_forcelist
+    # A 422 is a client error and must never be retried (would duplicate work).
+    assert 422 not in retry.status_forcelist
+    assert 400 not in retry.status_forcelist
+
+
+def test_retry_disabled_when_zero():
+    client = HospitalDirectoryClient(BASE, max_retries=0)
+    assert client.session.get_adapter(BASE + "/").max_retries.total == 0

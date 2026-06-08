@@ -29,12 +29,13 @@ class CsvValidationError(Exception):
 
 def _decode(raw: bytes) -> str:
     # utf-8-sig transparently strips a BOM if present (common from Excel).
-    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+    for encoding in ("utf-8-sig", "utf-8"):
         try:
             return raw.decode(encoding)
         except UnicodeDecodeError:
             continue
-    raise CsvValidationError("File could not be decoded as UTF-8 or Latin-1 text.")
+    # latin-1 maps all 256 byte values, so it always decodes — the catch-all.
+    return raw.decode("latin-1")
 
 
 def parse_csv(raw: bytes, max_rows: int) -> Tuple[List[HospitalInput], List[RowError], int]:
@@ -51,14 +52,21 @@ def parse_csv(raw: bytes, max_rows: int) -> Tuple[List[HospitalInput], List[RowE
 
     text = _decode(raw)
     reader = csv.DictReader(io.StringIO(text))
+    try:
+        # Force the full parse here so any csv.Error (e.g. an oversized or
+        # unterminated quoted field) surfaces as a clean 400, not a 500.
+        fieldnames = reader.fieldnames
+        records = list(reader)
+    except csv.Error as exc:
+        raise CsvValidationError("CSV file is malformed: {}".format(exc))
 
-    if not reader.fieldnames:
+    if not fieldnames:
         raise CsvValidationError("CSV file has no header row.")
 
     # Normalize headers: trim + lowercase so "Name", " phone " etc. all work.
-    normalized = [(field or "").strip().lower() for field in reader.fieldnames]
+    normalized = [(field or "").strip().lower() for field in fieldnames]
     header_map: Dict[str, str] = {}
-    for norm, original in zip(normalized, reader.fieldnames):
+    for norm, original in zip(normalized, fieldnames):
         # First occurrence wins for duplicate headers.
         header_map.setdefault(norm, original)
 
@@ -83,7 +91,7 @@ def parse_csv(raw: bytes, max_rows: int) -> Tuple[List[HospitalInput], List[RowE
             return value or None
         return None
 
-    for record in reader:
+    for record in records:
         # Skip fully blank lines so trailing newlines don't count as a row.
         if all((v is None or str(v).strip() == "") for v in record.values()):
             continue

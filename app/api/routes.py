@@ -193,11 +193,15 @@ def resume_job(job_id: str):
     if job is None:
         raise NotFound("No job found with id {}".format(job_id))
 
-    if job.status in {STATUS_PENDING, STATUS_PROCESSING}:
+    # Atomically claim the job so two concurrent resumes can't both re-create
+    # the same failed rows under the shared batch id.
+    previous_status = job.try_claim()
+    if previous_status is None:
         raise Conflict("Job {} is still {}; wait for it to finish.".format(job_id, job.status))
 
     failed = job.failed_rows()
     if not failed:
+        job.restore_status(previous_status)
         return jsonify(
             {
                 "message": "Nothing to resume; no failed rows.",
@@ -205,11 +209,15 @@ def resume_job(job_id: str):
             }
         )
 
-    result = svc.processor.process(
-        failed,
-        job.batch_id,
-        preserved=job.successful_results(),
-    )
+    try:
+        result = svc.processor.process(
+            failed,
+            job.batch_id,
+            preserved=job.successful_results(),
+        )
+    except Exception:
+        job.restore_status(previous_status)
+        raise
     job.mark_finished(result, utcnow_iso())
     return jsonify(
         {

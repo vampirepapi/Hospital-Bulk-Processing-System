@@ -1,0 +1,21 @@
+# Keep the build context small and the image clean.
+.venv/
+venv/
+env/
+.git/
+.gitignore
+.gitattributes
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.env
+*.md
+!README.md
+Senior_Python_Developer_Assignment.pdf
+.vscode/
+.idea/
+.DS_Store

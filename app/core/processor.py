@@ -137,10 +137,16 @@ class BulkProcessor:
                 batch_activated = False
 
         # Promote per-row status now that we know the batch activation outcome.
+        # Never demote a row that a *prior* run already activated (resume flow):
+        # those hospitals are active upstream and a failed re-activation here
+        # cannot un-commit them.
         for result in results:
             if result.created:
+                already_activated = result.status == STATUS_CREATED_AND_ACTIVATED
                 result.status = (
-                    STATUS_CREATED_AND_ACTIVATED if batch_activated else STATUS_CREATED
+                    STATUS_CREATED_AND_ACTIVATED
+                    if (batch_activated or already_activated)
+                    else STATUS_CREATED
                 )
 
         elapsed = round(time.monotonic() - start, 3)

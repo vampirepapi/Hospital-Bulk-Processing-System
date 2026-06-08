@@ -46,7 +46,9 @@ def create_app(
 
     app = Flask(__name__, static_folder="static")
     app.config["MAX_CONTENT_LENGTH"] = config.max_content_length
-    app.config["JSON_SORT_KEYS"] = False
+    # Flask 3.x: preserve insertion order so responses come out in contract order
+    # (the old JSON_SORT_KEYS config key is a no-op on 3.x).
+    app.json.sort_keys = False
 
     services = Services(config, client=client)
     app.extensions["bulk"] = services

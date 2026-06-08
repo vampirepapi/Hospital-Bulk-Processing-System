@@ -27,6 +27,7 @@ class FakeClient:
         fail_once_names: Optional[Iterable[str]] = None,
         fail_activate: bool = False,
         latency: float = 0.0,
+        drop_id: bool = False,
     ):
         self._lock = threading.Lock()
         self._next_id = 0
@@ -37,25 +38,38 @@ class FakeClient:
         self._attempts: Dict[str, int] = {}
         self.fail_activate = fail_activate
         self.latency = latency
+        self.drop_id = drop_id  # simulate a 200 response missing the "id" field
         self.create_calls = 0
+        self._in_flight = 0
+        self.peak_in_flight = 0  # high-water mark, for deterministic concurrency tests
 
     def create_hospital(self, payload: dict) -> dict:
-        if self.latency:
-            time.sleep(self.latency)
-        name = payload.get("name")
         with self._lock:
-            self.create_calls += 1
-            self._attempts[name] = self._attempts.get(name, 0) + 1
-            attempt = self._attempts[name]
-            if name in self.fail_names:
-                raise UpstreamError("simulated failure", status_code=500, detail="boom")
-            if name in self.fail_once_names and attempt == 1:
-                raise UpstreamError("transient failure", status_code=503, detail="retry me")
-            self._next_id += 1
-            hid = self._next_id
-            record = dict(payload, id=hid, active=False)
-            self.hospitals[hid] = record
-        return dict(record)
+            self._in_flight += 1
+            self.peak_in_flight = max(self.peak_in_flight, self._in_flight)
+        try:
+            if self.latency:
+                time.sleep(self.latency)
+            name = payload.get("name")
+            with self._lock:
+                self.create_calls += 1
+                self._attempts[name] = self._attempts.get(name, 0) + 1
+                attempt = self._attempts[name]
+                if name in self.fail_names:
+                    raise UpstreamError("simulated failure", status_code=500, detail="boom")
+                if name in self.fail_once_names and attempt == 1:
+                    raise UpstreamError("transient failure", status_code=503, detail="retry me")
+                self._next_id += 1
+                hid = self._next_id
+                record = dict(payload, id=hid, active=False)
+                self.hospitals[hid] = record
+            result = dict(record)
+            if self.drop_id:
+                result.pop("id", None)
+            return result
+        finally:
+            with self._lock:
+                self._in_flight -= 1
 
     def activate_batch(self, batch_id: str) -> dict:
         if self.fail_activate:

@@ -91,3 +91,14 @@ def test_extra_columns_are_ignored():
     raw = _b("name,address,phone,extra\nA,1,555,ignored\n")
     valid, errors, total = parse_csv(raw, max_rows=20)
     assert valid[0].name == "A" and not errors
+
+
+def test_malformed_oversized_field_raises_validation_error():
+    # An unterminated quoted field overflows csv's field-size limit and raises
+    # csv.Error; parse_csv must surface it as a CsvValidationError (-> 400),
+    # not let it escape as an unhandled 500.
+    big = '"' + ("a" * 200000)
+    raw = _b("name,address,phone\n" + big + ",1 St,555\n")
+    with pytest.raises(CsvValidationError) as ei:
+        parse_csv(raw, max_rows=20)
+    assert "malformed" in str(ei.value).lower()

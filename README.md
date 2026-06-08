@@ -163,7 +163,11 @@ and interactive Swagger UI at `/docs` (served from `/openapi.json`).
 
 - **Generous upstream timeout.** The upstream cold-starts (spins down when idle).
   The read timeout (60s) and gunicorn `--timeout 120` absorb that so the first
-  request after idle doesn't get reaped.
+  request after idle doesn't get reaped. Note: a *synchronous* request blocks
+  until the whole batch finishes, so a pathological cold upstream could push a
+  sync call toward a platform edge/load-balancer timeout (e.g. Render's). For
+  large or cold-start uploads prefer **`mode=async`**, which returns `202`
+  immediately and is polled — it is never bound by the edge request timeout.
 
 - **Retries & at-least-once.** Transient upstream failures (429/502/503/504 and
   connection errors) are retried with exponential backoff. Because `POST` is not

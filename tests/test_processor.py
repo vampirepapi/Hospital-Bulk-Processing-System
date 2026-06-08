@@ -113,13 +113,30 @@ def test_progress_callback_invoked_per_row():
     assert seen[-1][0] == 4 and seen[-1][1] == 4
 
 
-def test_concurrency_runs_faster_than_sequential():
-    # 6 rows at 0.1s latency: sequential >= 0.6s, concurrency=6 ~ 0.1s.
-    import time
-
+def test_creates_run_concurrently():
+    # Deterministic (no wall-clock): with latency holding workers open, the
+    # observed peak in-flight must reach the configured concurrency.
     fake = FakeClient(latency=0.1)
     proc = BulkProcessor(fake, concurrency=6)
-    start = time.monotonic()
     proc.process(_rows(6), BATCH)
-    elapsed = time.monotonic() - start
-    assert elapsed < 0.4  # comfortably below the 0.6s sequential floor
+    assert fake.peak_in_flight == 6  # all 6 ran at once, not sequentially
+
+
+def test_concurrency_bounded_by_pool_size():
+    # 8 rows but concurrency=3 -> never more than 3 in flight at once.
+    fake = FakeClient(latency=0.05)
+    proc = BulkProcessor(fake, concurrency=3)
+    proc.process(_rows(8), BATCH)
+    assert fake.peak_in_flight == 3
+
+
+def test_upstream_200_without_id_is_treated_as_failure():
+    fake = FakeClient(drop_id=True)
+    proc = BulkProcessor(fake, concurrency=2)
+    result = proc.process(_rows(2), BATCH)
+    assert result.processed_hospitals == 0
+    assert result.failed_hospitals == 2
+    assert result.batch_activated is False
+    assert fake.activated_batches == []
+    assert all(h.status == "failed" for h in result.hospitals)
+    assert all("did not return a hospital id" in h.error for h in result.hospitals)

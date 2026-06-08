@@ -49,6 +49,25 @@ class Job:
             self.status = STATUS_PROCESSING
             self.started_at = when
 
+    def try_claim(self) -> Optional[str]:
+        """Atomically claim a *terminal* job for re-processing (resume).
+
+        Returns the previous status if the claim succeeded (and transitions the
+        job to PROCESSING in the same locked section), or ``None`` if the job is
+        already pending/processing. This single compare-and-set closes the
+        check-then-act race between concurrent resume requests.
+        """
+        with self._lock:
+            if self.status in {STATUS_PENDING, STATUS_PROCESSING}:
+                return None
+            previous = self.status
+            self.status = STATUS_PROCESSING
+            return previous
+
+    def restore_status(self, status: str) -> None:
+        with self._lock:
+            self.status = status
+
     def on_progress(self, row_result: RowResult, completed: int, total: int) -> None:
         with self._lock:
             self.completed = completed
