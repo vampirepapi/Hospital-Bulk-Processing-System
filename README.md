@@ -8,6 +8,7 @@ Built for the Paribus Senior Python Developer challenge.
 
 - **Live demo:** _<add your Render URL here after deploy>_ — interactive docs at `/docs`
 - **Stack:** Python 3.8+ · Flask · `requests` (pooled + retrying) · `concurrent.futures` · gunicorn · Docker
+- **Cold-start note:** on Render's free tier the *first* request after idle is slow (~30–60s) — it wakes **both** this service and the upstream. It still succeeds within the configured timeout, and subsequent requests are fast. Prefer `mode=async` for cold/large batches.
 
 ---
 
@@ -103,6 +104,13 @@ curl -X POST http://localhost:5000/hospitals/bulk \
 
 `status` per row is one of: `created_and_activated`, `created` (created but the
 batch was not activated), or `failed` (with an `error` field).
+
+> **Input validation vs processing outcome:** a malformed CSV — bad headers, an
+> empty `name`/`address`, more than 20 rows, or an unparseable file — is rejected
+> up front with a **`400`** (plus per-row details) and never reaches the upstream.
+> So `failed_hospitals` and a per-row `status: "failed"` represent *upstream*
+> processing failures, not bad input. Use `/hospitals/bulk/validate` to check a
+> file before submitting.
 
 **Asynchronous** — returns `202` with a job id to poll:
 
@@ -248,7 +256,7 @@ docker run -p 8000:8000 hospital-bulk-processing
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                       # 53 tests
+pytest                       # 61 tests
 ```
 
 The suite (`tests/`) covers:
@@ -299,7 +307,7 @@ app/
     processor.py     concurrent orchestration
     jobs.py          thread-safe job store
   static/            openapi.json + Swagger UI page
-tests/               53 tests (pytest)
+tests/               61 tests (pytest)
 scripts/live_smoke.py
 wsgi.py  run.py      prod / dev entrypoints
 Dockerfile  docker-compose.yml  render.yaml  Procfile
@@ -313,6 +321,6 @@ Dockerfile  docker-compose.yml  render.yaml  Procfile
 - ✅ **Progress tracking** — async jobs with a polling endpoint
 - ✅ **Resume capability** — re-attempt failed rows in the same batch
 - ✅ **CSV validation endpoint** — dry-run validation before processing
-- ✅ **Comprehensive testing** — 53 unit + integration tests, plus a live smoke script
+- ✅ **Comprehensive testing** — 61 unit + integration tests, plus a live smoke script
 - ✅ **Dockerization** — `Dockerfile` + `docker-compose.yml`
 - ✅ **Interactive API docs** — Swagger UI at `/docs`
