@@ -6,9 +6,9 @@ then activating the whole batch atomically.
 
 Built for the Paribus Senior Python Developer challenge.
 
-- **Live demo:** _<add your Render URL here after deploy>_ — interactive docs at `/docs`
+- **Live demo:** **https://vampirepapi-hospital-bulk-processing.hf.space** — interactive Swagger UI at [`/docs`](https://vampirepapi-hospital-bulk-processing.hf.space/docs)
 - **Stack:** Python 3.8+ · Flask · `requests` (pooled + retrying) · `concurrent.futures` · gunicorn · Docker
-- **Cold-start note:** on Render's free tier the *first* request after idle is slow (~30–60s) — it wakes **both** this service and the upstream. It still succeeds within the configured timeout, and subsequent requests are fast. Prefer `mode=async` for cold/large batches.
+- **Cold-start note:** the app is hosted on **Hugging Face Spaces** (free, Docker), which sleeps after ~48h idle, and the upstream Hospital Directory API runs on Render's free tier (spins down when idle). So the *first* request after idle can take ~30–60s while both wake up — it still succeeds within the configured timeout, and subsequent requests are fast. Prefer `mode=async` for cold/large batches.
 
 ---
 
@@ -277,17 +277,24 @@ python scripts/acceptance_check.py  # full acceptance: every endpoint + exact
 
 ---
 
-## Deployment (Render)
+## Deployment
 
-This repo includes a `render.yaml` blueprint.
+The live demo runs on **Hugging Face Spaces** (free Docker Space, no credit card),
+which builds the included `Dockerfile`. A Space's `README.md` carries the metadata
+`sdk: docker` and `app_port: 8000` so HF routes to gunicorn. Live URL:
+**https://vampirepapi-hospital-bulk-processing.hf.space**
+
+The repo also includes a `render.yaml` blueprint for **Render** (note: Render now
+requires a payment method to enable the free tier):
 
 1. Push the repo to GitHub.
-2. In Render: **New + → Blueprint**, select the repo. Render reads `render.yaml`
-   and provisions a free web service with the correct single-worker start command
-   and `/health` health check.
-3. Or deploy the `Dockerfile` directly (Render → New + → Web Service → Docker).
+2. In Render: **New + → Blueprint**, select the repo — Render reads `render.yaml`
+   and provisions a web service with the single-worker start command and `/health`
+   health check. (Or **New + → Web Service → Docker** to use the `Dockerfile`.)
 
-The start command is intentionally `gunicorn --workers 1 --threads 8 --timeout 120`.
+The start command is intentionally `gunicorn --workers 1 --threads 8 --timeout 120`
+(single worker for the in-memory job store; generous timeout for the cold-starting
+upstream).
 
 ---
 
