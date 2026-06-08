@@ -1,5 +1,5 @@
-# Render Blueprint — deploy with one click via "New + > Blueprint" pointing at
-# this repo, or let Render auto-detect it. Uses the native Python runtime.
+# Render Blueprint — deploy via "New + > Blueprint" pointing at this repo.
+# Uses the native Python runtime. Auto-deploy on push is Render's default.
 services:
   - type: web
     name: hospital-bulk-processing
@@ -10,12 +10,11 @@ services:
     # Single worker (in-memory job store) + threads/timeout for the slow upstream.
     startCommand: gunicorn --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:$PORT wsgi:app
     healthCheckPath: /health
-    autoDeploy: true
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
       - key: UPSTREAM_BASE_URL
-        value: https://hospital-directory.onrender.com
+        value: "https://hospital-directory.onrender.com"
       - key: BULK_CONCURRENCY
         value: "8"
       - key: UPSTREAM_READ_TIMEOUT
@@ -23,4 +22,4 @@ services:
       - key: ACTIVATE_ON_PARTIAL
         value: "false"
       - key: LOG_LEVEL
-        value: INFO
+        value: "INFO"
