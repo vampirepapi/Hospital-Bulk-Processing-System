@@ -1,0 +1,184 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Hospital Bulk Processing System",
+    "version": "1.0.0",
+    "description": "Bulk-creates hospitals from a CSV upload by fanning out concurrent calls to the upstream Hospital Directory API, then activating the batch. Built with Flask."
+  },
+  "paths": {
+    "/hospitals/bulk": {
+      "post": {
+        "summary": "Bulk-create hospitals from a CSV",
+        "description": "Accepts a CSV (name,address,phone), creates each hospital concurrently under a generated batch id, then activates the batch. Default mode=sync returns the full result; mode=async returns a job to poll.",
+        "parameters": [
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["sync", "async"], "default": "sync" },
+            "description": "sync: process inline and return the full result. async: return 202 with a job id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": { "type": "string", "format": "binary", "description": "CSV file with header: name,address,phone" },
+                  "mode": { "type": "string", "enum": ["sync", "async"] }
+                },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Synchronous result",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BulkResult" } } }
+          },
+          "202": {
+            "description": "Asynchronous job accepted",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobAccepted" } } }
+          },
+          "400": {
+            "description": "Invalid CSV",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "413": { "description": "Uploaded file too large" }
+        }
+      }
+    },
+    "/hospitals/bulk/validate": {
+      "post": {
+        "summary": "Validate a CSV without processing",
+        "description": "Dry-run validation. Never contacts the upstream. Returns a per-row validation report.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": { "file": { "type": "string", "format": "binary" } },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validation report",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ValidationReport" } } }
+          }
+        }
+      }
+    },
+    "/hospitals/bulk/{job_id}": {
+      "get": {
+        "summary": "Poll an async job's progress/result",
+        "parameters": [
+          { "name": "job_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job snapshot",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobSnapshot" } } }
+          },
+          "404": { "description": "Unknown job id" }
+        }
+      }
+    },
+    "/hospitals/bulk/{job_id}/resume": {
+      "post": {
+        "summary": "Resume a job by re-attempting its failed rows",
+        "parameters": [
+          { "name": "job_id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Updated job snapshot" },
+          "404": { "description": "Unknown job id" },
+          "409": { "description": "Job still running" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Service health check",
+        "parameters": [
+          { "name": "check_upstream", "in": "query", "required": false, "schema": { "type": "boolean" } }
+        ],
+        "responses": { "200": { "description": "Healthy" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BulkResult": {
+        "type": "object",
+        "properties": {
+          "batch_id": { "type": "string", "format": "uuid" },
+          "total_hospitals": { "type": "integer" },
+          "processed_hospitals": { "type": "integer" },
+          "failed_hospitals": { "type": "integer" },
+          "processing_time_seconds": { "type": "number" },
+          "batch_activated": { "type": "boolean" },
+          "hospitals": { "type": "array", "items": { "$ref": "#/components/schemas/RowResult" } }
+        }
+      },
+      "RowResult": {
+        "type": "object",
+        "properties": {
+          "row": { "type": "integer" },
+          "hospital_id": { "type": "integer", "nullable": true },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["created_and_activated", "created", "failed"] },
+          "error": { "type": "string", "nullable": true }
+        }
+      },
+      "JobAccepted": {
+        "type": "object",
+        "properties": {
+          "job_id": { "type": "string" },
+          "batch_id": { "type": "string" },
+          "status": { "type": "string" },
+          "total_hospitals": { "type": "integer" },
+          "status_url": { "type": "string" }
+        }
+      },
+      "JobSnapshot": {
+        "type": "object",
+        "properties": {
+          "job_id": { "type": "string" },
+          "batch_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "processing", "completed", "partial", "failed"] },
+          "total_hospitals": { "type": "integer" },
+          "completed": { "type": "integer" },
+          "created": { "type": "integer" },
+          "failed": { "type": "integer" },
+          "progress_percent": { "type": "number" },
+          "result": { "$ref": "#/components/schemas/BulkResult" }
+        }
+      },
+      "ValidationReport": {
+        "type": "object",
+        "properties": {
+          "valid": { "type": "boolean" },
+          "total_rows": { "type": "integer" },
+          "valid_rows": { "type": "integer" },
+          "invalid_rows": { "type": "integer" },
+          "errors": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "message": { "type": "string" },
+          "details": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    }
+  }
+}
